@@ -1,0 +1,1147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DemoAgent — Pricing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink: #0a0a0f;
+    --paper: #f5f2ec;
+    --accent: #c8a96e;
+    --accent-dim: #8a6f42;
+    --mid: #2a2835;
+    --muted: #6b6880;
+    --border: rgba(200,169,110,0.18);
+    --border-light: rgba(200,169,110,0.08);
+    --serif: 'DM Serif Display', Georgia, serif;
+    --sans: 'Syne', sans-serif;
+    --mono: 'DM Mono', monospace;
+  }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Film grain overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0.35;
+  }
+
+  /* Nav */
+  nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 28px 48px;
+    border-bottom: 0.5px solid var(--border-light);
+    position: sticky;
+    top: 0;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    z-index: 100;
+    animation: fadeDown 0.6s ease both;
+  }
+
+  .logo {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    color: var(--paper);
+  }
+  .logo span { color: var(--accent); }
+
+  .nav-links {
+    display: flex;
+    gap: 36px;
+    list-style: none;
+  }
+  .nav-links a {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--paper); }
+
+  .nav-cta {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--ink);
+    background: var(--accent);
+    border: none;
+    padding: 9px 20px;
+    cursor: pointer;
+    letter-spacing: 0.02em;
+    transition: opacity 0.2s, transform 0.15s;
+  }
+  .nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 100px 24px 72px;
+    position: relative;
+    animation: fadeUp 0.8s 0.1s ease both;
+  }
+
+  .hero-eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+  .hero-eyebrow::before,
+  .hero-eyebrow::after {
+    content: '';
+    width: 32px;
+    height: 0.5px;
+    background: var(--accent-dim);
+  }
+
+  .hero h1 {
+    font-family: var(--serif);
+    font-size: clamp(44px, 7vw, 80px);
+    font-weight: 400;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--paper);
+    max-width: 720px;
+    margin: 0 auto 24px;
+  }
+
+  .hero h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .hero-sub {
+    font-size: 16px;
+    color: var(--muted);
+    max-width: 440px;
+    margin: 0 auto;
+    line-height: 1.65;
+    font-weight: 400;
+  }
+
+  /* Toggle */
+  .billing-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin: 48px auto 0;
+    animation: fadeUp 0.8s 0.2s ease both;
+  }
+
+  .toggle-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    transition: color 0.2s;
+  }
+  .toggle-label.active { color: var(--paper); }
+
+  .toggle-track {
+    width: 44px;
+    height: 24px;
+    background: var(--mid);
+    border: 0.5px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.2s;
+  }
+  .toggle-track.annual { background: var(--accent-dim); }
+
+  .toggle-thumb {
+    width: 16px;
+    height: 16px;
+    background: var(--paper);
+    border-radius: 50%;
+    position: absolute;
+    top: 3px;
+    left: 4px;
+    transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  .toggle-track.annual .toggle-thumb { transform: translateX(20px); }
+
+  .save-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--accent);
+    padding: 3px 8px;
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .save-badge.show { opacity: 1; transform: translateY(0); }
+
+  /* Plans grid */
+  .plans {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    max-width: 1100px;
+    margin: 72px auto 0;
+    padding: 0 24px;
+    border: 0.5px solid var(--border);
+    animation: fadeUp 0.8s 0.3s ease both;
+  }
+
+  .plan {
+    background: var(--ink);
+    padding: 48px 40px 52px;
+    position: relative;
+    transition: background 0.3s;
+    border: 0.5px solid var(--border-light);
+  }
+
+  .plan:hover { background: #0f0e18; }
+
+  .plan.featured {
+    background: var(--mid);
+    border: 0.5px solid var(--border);
+  }
+  .plan.featured:hover { background: #322f46; }
+
+  .plan-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink);
+    background: var(--accent);
+    padding: 4px 10px;
+    display: inline-block;
+    margin-bottom: 28px;
+  }
+
+  .plan-name {
+    font-family: var(--serif);
+    font-size: 32px;
+    font-weight: 400;
+    color: var(--paper);
+    margin-bottom: 8px;
+  }
+
+  .plan-desc {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.55;
+    margin-bottom: 36px;
+    min-height: 42px;
+  }
+
+  .plan-price {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .price-amount {
+    font-family: var(--serif);
+    font-size: 52px;
+    font-weight: 400;
+    color: var(--paper);
+    line-height: 1;
+    letter-spacing: -0.02em;
+    transition: opacity 0.2s;
+  }
+
+  .price-currency {
+    font-family: var(--mono);
+    font-size: 18px;
+    color: var(--muted);
+    align-self: flex-start;
+    margin-top: 8px;
+  }
+
+  .price-period {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  .price-note {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent-dim);
+    letter-spacing: 0.04em;
+    margin-bottom: 36px;
+    min-height: 16px;
+  }
+
+  .plan-divider {
+    height: 0.5px;
+    background: var(--border-light);
+    margin-bottom: 32px;
+  }
+
+  .plan-features {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 44px;
+  }
+
+  .plan-features li {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    font-size: 14px;
+    color: var(--paper);
+    line-height: 1.4;
+  }
+
+  .plan-features li.dim { color: var(--muted); }
+
+  .feat-icon {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .feat-icon.check { color: var(--accent); }
+  .feat-icon.dash { color: var(--muted); opacity: 0.4; }
+
+  .plan-btn {
+    width: 100%;
+    padding: 14px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+  }
+
+  .plan-btn.outline {
+    background: transparent;
+    color: var(--paper);
+    border: 0.5px solid var(--border);
+  }
+  .plan-btn.outline:hover {
+    background: var(--mid);
+    border-color: var(--border);
+  }
+
+  .plan-btn.solid {
+    background: var(--accent);
+    color: var(--ink);
+  }
+  .plan-btn.solid:hover {
+    background: #dbc080;
+    transform: translateY(-1px);
+  }
+
+  /* One-time card */
+  .onetime-wrap {
+    max-width: 1100px;
+    margin: 1px auto 0;
+    padding: 0 24px;
+    animation: fadeUp 0.8s 0.4s ease both;
+  }
+
+  .onetime-card {
+    border: 0.5px solid var(--border-light);
+    background: var(--ink);
+    padding: 36px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 40px;
+    transition: background 0.2s;
+  }
+  .onetime-card:hover { background: #0f0e18; }
+
+  .onetime-left { flex: 1; }
+
+  .onetime-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  .onetime-title {
+    font-family: var(--serif);
+    font-size: 26px;
+    color: var(--paper);
+    margin-bottom: 6px;
+  }
+
+  .onetime-desc {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .onetime-features {
+    display: flex;
+    gap: 28px;
+    flex: 2;
+  }
+
+  .onetime-feat {
+    font-size: 13px;
+    color: var(--paper);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+  }
+  .onetime-feat svg { color: var(--accent); flex-shrink: 0; }
+
+  .onetime-right {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-shrink: 0;
+  }
+
+  .onetime-price {
+    text-align: right;
+  }
+  .onetime-amount {
+    font-family: var(--serif);
+    font-size: 40px;
+    color: var(--paper);
+    line-height: 1;
+  }
+  .onetime-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .onetime-btn {
+    padding: 13px 28px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--paper);
+    border: 0.5px solid var(--border);
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .onetime-btn:hover { background: var(--mid); }
+
+  /* Comparison table */
+  .compare-section {
+    max-width: 1100px;
+    margin: 96px auto 0;
+    padding: 0 24px;
+    animation: fadeUp 0.8s 0.5s ease both;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 0.5px;
+    background: var(--border-light);
+  }
+
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .compare-table th {
+    font-family: var(--serif);
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--paper);
+    padding: 20px 24px;
+    text-align: left;
+    border-bottom: 0.5px solid var(--border);
+  }
+
+  .compare-table th:first-child {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-weight: 400;
+  }
+
+  .compare-table td {
+    padding: 16px 24px;
+    border-bottom: 0.5px solid var(--border-light);
+    color: var(--paper);
+    vertical-align: middle;
+  }
+
+  .compare-table td:first-child {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .compare-table tr:last-child td { border-bottom: none; }
+
+  .compare-table .featured-col {
+    background: rgba(42,40,53,0.5);
+  }
+
+  .check-cell { color: var(--accent); }
+  .dash-cell { color: var(--muted); opacity: 0.3; }
+  .text-cell { font-family: var(--mono); font-size: 12px; }
+
+  .compare-table .cat-row td {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent-dim);
+    background: rgba(200,169,110,0.04);
+    padding-top: 20px;
+    padding-bottom: 12px;
+    border-bottom: none;
+  }
+
+  /* FAQ */
+  .faq-section {
+    max-width: 720px;
+    margin: 96px auto 0;
+    padding: 0 24px;
+    animation: fadeUp 0.8s 0.6s ease both;
+  }
+
+  .faq-item {
+    border-top: 0.5px solid var(--border-light);
+    padding: 24px 0;
+    cursor: pointer;
+  }
+  .faq-item:last-child { border-bottom: 0.5px solid var(--border-light); }
+
+  .faq-q {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 16px;
+    color: var(--paper);
+    font-weight: 500;
+    gap: 20px;
+  }
+
+  .faq-icon {
+    color: var(--accent);
+    font-size: 20px;
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-weight: 300;
+    line-height: 1;
+    transition: transform 0.2s;
+  }
+  .faq-item.open .faq-icon { transform: rotate(45deg); }
+
+  .faq-a {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.7;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.35s ease, margin-top 0.2s;
+  }
+  .faq-item.open .faq-a {
+    max-height: 200px;
+    margin-top: 16px;
+  }
+
+  /* CTA strip */
+  .cta-strip {
+    max-width: 1100px;
+    margin: 96px auto 0;
+    padding: 0 24px;
+    animation: fadeUp 0.8s 0.7s ease both;
+  }
+
+  .cta-inner {
+    border: 0.5px solid var(--border);
+    background: var(--mid);
+    padding: 72px 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 48px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .cta-inner::before {
+    content: '';
+    position: absolute;
+    right: -80px;
+    top: -80px;
+    width: 320px;
+    height: 320px;
+    background: radial-gradient(circle, rgba(200,169,110,0.12) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .cta-text h2 {
+    font-family: var(--serif);
+    font-size: 36px;
+    font-weight: 400;
+    color: var(--paper);
+    margin-bottom: 10px;
+  }
+  .cta-text p {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.6;
+    max-width: 380px;
+  }
+
+  .cta-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+
+  .cta-btn-primary {
+    padding: 15px 36px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: var(--accent);
+    color: var(--ink);
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .cta-btn-primary:hover { background: #dbc080; transform: translateY(-1px); }
+
+  .cta-btn-secondary {
+    padding: 14px 36px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    background: transparent;
+    color: var(--muted);
+    border: 0.5px solid rgba(200,169,110,0.2);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .cta-btn-secondary:hover { color: var(--paper); border-color: var(--border); }
+
+  /* Footer */
+  footer {
+    margin-top: 96px;
+    padding: 36px 48px;
+    border-top: 0.5px solid var(--border-light);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .footer-logo { font-weight: 800; font-size: 15px; }
+  .footer-logo span { color: var(--accent); }
+
+  .footer-copy {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+  }
+
+  /* Animations */
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .plans { grid-template-columns: 1fr; }
+    .onetime-card { flex-direction: column; align-items: flex-start; }
+    .onetime-features { flex-wrap: wrap; }
+    .onetime-right { flex-direction: row; }
+    .cta-inner { flex-direction: column; padding: 48px 32px; }
+    nav { padding: 20px 24px; }
+    .nav-links { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">Demo<span>Agent</span></div>
+  <ul class="nav-links">
+    <li><a href="#">Product</a></li>
+    <li><a href="#">Examples</a></li>
+    <li><a href="#">Docs</a></li>
+    <li><a href="#">Pricing</a></li>
+  </ul>
+  <button class="nav-cta">Start free →</button>
+</nav>
+
+<section class="hero">
+  <div class="hero-eyebrow">Pricing</div>
+  <h1>Pay for demos.<br><em>Not subscriptions</em><br>you forget about.</h1>
+  <p class="hero-sub">A project-based model that scales with how often your product actually changes.</p>
+
+  <div class="billing-toggle">
+    <span class="toggle-label active" id="monthly-label">Monthly</span>
+    <div class="toggle-track" id="toggle" onclick="toggleBilling()">
+      <div class="toggle-thumb"></div>
+    </div>
+    <span class="toggle-label" id="annual-label">Annual</span>
+    <span class="save-badge" id="save-badge">Save 30%</span>
+  </div>
+</section>
+
+<!-- Plans -->
+<div class="plans">
+
+  <!-- Starter -->
+  <div class="plan">
+    <div class="plan-name">Starter</div>
+    <div class="plan-desc">For solo builders and founders shipping their first demo.</div>
+    <div class="plan-price">
+      <span class="price-currency">$</span>
+      <span class="price-amount" id="price-starter">29</span>
+      <span class="price-period">/mo</span>
+    </div>
+    <div class="price-note" id="note-starter">&nbsp;</div>
+
+    <div class="plan-divider"></div>
+
+    <ul class="plan-features">
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        2 projects / month
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Up to 5 clips per project
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        3 voice options
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        MP4 export
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Script editing
+      </li>
+      <li class="dim">
+        <svg class="feat-icon dash" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        No white-label
+      </li>
+      <li class="dim">
+        <svg class="feat-icon dash" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        No custom music
+      </li>
+    </ul>
+
+    <button class="plan-btn outline">Get started →</button>
+  </div>
+
+  <!-- Growth (featured) -->
+  <div class="plan featured">
+    <div class="plan-badge">Most popular</div>
+    <div class="plan-name">Growth</div>
+    <div class="plan-desc">For SaaS teams shipping features faster than they can document them.</div>
+    <div class="plan-price">
+      <span class="price-currency">$</span>
+      <span class="price-amount" id="price-growth">49</span>
+      <span class="price-period">/mo</span>
+    </div>
+    <div class="price-note" id="note-growth">&nbsp;</div>
+
+    <div class="plan-divider"></div>
+
+    <ul class="plan-features">
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        5 projects / month
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Up to 8 clips per project
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        All 5 voice options
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        MP4 + shareable link
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Script regeneration
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Background music library
+      </li>
+      <li class="dim">
+        <svg class="feat-icon dash" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M4 8h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        No white-label
+      </li>
+    </ul>
+
+    <button class="plan-btn solid">Get started →</button>
+  </div>
+
+  <!-- Studio -->
+  <div class="plan">
+    <div class="plan-name">Studio</div>
+    <div class="plan-desc">For agencies and teams producing demos at scale, every sprint.</div>
+    <div class="plan-price">
+      <span class="price-currency">$</span>
+      <span class="price-amount" id="price-studio">149</span>
+      <span class="price-period">/mo</span>
+    </div>
+    <div class="price-note" id="note-studio">&nbsp;</div>
+
+    <div class="plan-divider"></div>
+
+    <ul class="plan-features">
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Unlimited projects
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Unlimited clips per project
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        All voices + custom upload
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Priority encoding queue
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        White-label export
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Custom music upload
+      </li>
+      <li>
+        <svg class="feat-icon check" width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        API access
+      </li>
+    </ul>
+
+    <button class="plan-btn outline">Get started →</button>
+  </div>
+</div>
+
+<!-- One-time card -->
+<div class="onetime-wrap">
+  <div class="onetime-card">
+    <div class="onetime-left">
+      <div class="onetime-tag">One-time · No subscription</div>
+      <div class="onetime-title">Single Project Pass</div>
+      <div class="onetime-desc">Need one demo, right now. No commitment, no recurring charge.</div>
+    </div>
+    <div class="onetime-features">
+      <div class="onetime-feat">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        1 project
+      </div>
+      <div class="onetime-feat">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Up to 5 clips
+      </div>
+      <div class="onetime-feat">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        MP4 export
+      </div>
+      <div class="onetime-feat">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8l3.5 3.5L13 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        3 voice options
+      </div>
+    </div>
+    <div class="onetime-right">
+      <div class="onetime-price">
+        <div class="onetime-amount">$29</div>
+        <div class="onetime-label">one time</div>
+      </div>
+      <button class="onetime-btn">Buy now →</button>
+    </div>
+  </div>
+</div>
+
+<!-- Comparison -->
+<section class="compare-section">
+  <div class="section-label">Full comparison</div>
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th style="width:36%"></th>
+        <th>Starter</th>
+        <th class="featured-col">Growth</th>
+        <th>Studio</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="cat-row"><td colspan="4">Projects & output</td></tr>
+      <tr>
+        <td>Projects per month</td>
+        <td class="text-cell">2</td>
+        <td class="text-cell featured-col">5</td>
+        <td class="text-cell">Unlimited</td>
+      </tr>
+      <tr>
+        <td>Clips per project</td>
+        <td class="text-cell">Up to 5</td>
+        <td class="text-cell featured-col">Up to 8</td>
+        <td class="text-cell">Unlimited</td>
+      </tr>
+      <tr>
+        <td>Flow auto-detection</td>
+        <td class="check-cell">✓</td>
+        <td class="check-cell featured-col">✓</td>
+        <td class="check-cell">✓</td>
+      </tr>
+      <tr>
+        <td>MP4 export</td>
+        <td class="check-cell">✓</td>
+        <td class="check-cell featured-col">✓</td>
+        <td class="check-cell">✓</td>
+      </tr>
+      <tr>
+        <td>Shareable video link</td>
+        <td class="dash-cell">—</td>
+        <td class="check-cell featured-col">✓</td>
+        <td class="check-cell">✓</td>
+      </tr>
+
+      <tr class="cat-row"><td colspan="4">Narration & audio</td></tr>
+      <tr>
+        <td>AI narration voices</td>
+        <td class="text-cell">3 voices</td>
+        <td class="text-cell featured-col">5 voices</td>
+        <td class="text-cell">5 + custom</td>
+      </tr>
+      <tr>
+        <td>Script editing</td>
+        <td class="check-cell">✓</td>
+        <td class="check-cell featured-col">✓</td>
+        <td class="check-cell">✓</td>
+      </tr>
+      <tr>
+        <td>Script regeneration</td>
+        <td class="dash-cell">—</td>
+        <td class="check-cell featured-col">✓</td>
+        <td class="check-cell">✓</td>
+      </tr>
+      <tr>
+        <td>Background music library</td>
+        <td class="dash-cell">—</td>
+        <td class="check-cell featured-col">✓</td>
+        <td class="check-cell">✓</td>
+      </tr>
+      <tr>
+        <td>Custom music upload</td>
+        <td class="dash-cell">—</td>
+        <td class="dash-cell featured-col">—</td>
+        <td class="check-cell">✓</td>
+      </tr>
+
+      <tr class="cat-row"><td colspan="4">Branding & delivery</td></tr>
+      <tr>
+        <td>White-label export</td>
+        <td class="dash-cell">—</td>
+        <td class="dash-cell featured-col">—</td>
+        <td class="check-cell">✓</td>
+      </tr>
+      <tr>
+        <td>Priority encoding</td>
+        <td class="dash-cell">—</td>
+        <td class="dash-cell featured-col">—</td>
+        <td class="check-cell">✓</td>
+      </tr>
+      <tr>
+        <td>API access</td>
+        <td class="dash-cell">—</td>
+        <td class="dash-cell featured-col">—</td>
+        <td class="check-cell">✓</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- FAQ -->
+<section class="faq-section">
+  <div class="section-label" style="max-width:none">FAQ</div>
+
+  <div class="faq-item" onclick="toggleFaq(this)">
+    <div class="faq-q">
+      What counts as a "project"?
+      <span class="faq-icon">+</span>
+    </div>
+    <div class="faq-a">A project is one URL analyzed — DemoAgent crawls the site, detects user flows, records clips, and generates a stitched video. You can re-run a project if your product updates without it counting as a new one within the same billing period.</div>
+  </div>
+
+  <div class="faq-item" onclick="toggleFaq(this)">
+    <div class="faq-q">
+      How long does a project take to generate?
+      <span class="faq-icon">+</span>
+    </div>
+    <div class="faq-a">Most projects complete in 4–8 minutes from URL submission to downloadable MP4. Studio plan projects with priority encoding typically finish in under 3 minutes. Complex sites with many flows may take slightly longer.</div>
+  </div>
+
+  <div class="faq-item" onclick="toggleFaq(this)">
+    <div class="faq-q">
+      Can it record sites that require login?
+      <span class="faq-icon">+</span>
+    </div>
+    <div class="faq-a">Yes. You can provide credentials securely and the agent will authenticate before recording. Credentials are used only for that session and never stored. This is available on all paid plans.</div>
+  </div>
+
+  <div class="faq-item" onclick="toggleFaq(this)">
+    <div class="faq-q">
+      What happens if I go over my project limit?
+      <span class="faq-icon">+</span>
+    </div>
+    <div class="faq-a">You can purchase additional project credits at $14 each, or upgrade your plan mid-cycle. We'll never auto-charge you — you stay in control.</div>
+  </div>
+
+  <div class="faq-item" onclick="toggleFaq(this)">
+    <div class="faq-q">
+      Do you offer refunds?
+      <span class="faq-icon">+</span>
+    </div>
+    <div class="faq-a">If a project fails to generate due to a technical issue on our end, we credit your account immediately. Subscriptions are cancellable any time; we don't offer partial-month refunds but you keep access until the end of the billing period.</div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-strip">
+  <div class="cta-inner">
+    <div class="cta-text">
+      <h2>Your demo is already outdated.</h2>
+      <p>Every week you don't update your product demo is a week your site is lying to potential customers. Fix that in 6 minutes.</p>
+    </div>
+    <div class="cta-actions">
+      <button class="cta-btn-primary">Generate your first demo →</button>
+      <button class="cta-btn-secondary">See an example first</button>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="footer-logo">Demo<span>Agent</span></div>
+  <div class="footer-copy">© 2026 DemoAgent. Built by two people and a lot of API calls.</div>
+</footer>
+
+<script>
+  let isAnnual = false;
+
+  const prices = {
+    starter: { monthly: 29, annual: 20 },
+    growth: { monthly: 49, annual: 34 },
+    studio: { monthly: 149, annual: 104 },
+  };
+
+  function toggleBilling() {
+    isAnnual = !isAnnual;
+    const toggle = document.getElementById('toggle');
+    const monthlyLabel = document.getElementById('monthly-label');
+    const annualLabel = document.getElementById('annual-label');
+    const saveBadge = document.getElementById('save-badge');
+
+    toggle.classList.toggle('annual', isAnnual);
+    monthlyLabel.classList.toggle('active', !isAnnual);
+    annualLabel.classList.toggle('active', isAnnual);
+    saveBadge.classList.toggle('show', isAnnual);
+
+    for (const [plan, p] of Object.entries(prices)) {
+      const el = document.getElementById('price-' + plan);
+      const note = document.getElementById('note-' + plan);
+      const val = isAnnual ? p.annual : p.monthly;
+      el.textContent = val;
+      note.textContent = isAnnual ? `$${val * 12}/yr — save $${(p.monthly - p.annual) * 12}` : '\u00a0';
+    }
+  }
+
+  function toggleFaq(item) {
+    const wasOpen = item.classList.contains('open');
+    document.querySelectorAll('.faq-item').forEach(i => i.classList.remove('open'));
+    if (!wasOpen) item.classList.add('open');
+  }
+</script>
+</body>
+</html>
