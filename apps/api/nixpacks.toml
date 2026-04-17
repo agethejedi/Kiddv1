@@ -1,5 +1,6 @@
 [phases.build]
-cmds = ["npx tsc -p apps/api/tsconfig.json"]
+cmds = ["cd apps/api && npx tsc"]
 
 [start]
 cmd = "node apps/api/dist/index.js"
+
