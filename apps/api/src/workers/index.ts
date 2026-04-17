@@ -3,8 +3,96 @@ import { redis } from '../lib/redis'
 import { supabase, log } from '../lib/supabase'
 import { uploadFile, r2Config } from '../lib/r2'
 import { generateAudio } from '../lib/tts'
-import { analyzeSite, recordFlow } from '@demoagent/recorder'
-import { detectFlows, generateScript, regenerateScript } from '@demoagent/ai'
+import Anthropic from '@anthropic-ai/sdk'
+import { chromium } from 'playwright-core'
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const MODEL = 'claude-sonnet-4-20250514'
+const BROWSERLESS_WS = process.env.BROWSERLESS_WS_ENDPOINT || 'wss://chrome.browserless.io'
+const BROWSERLESS_KEY = process.env.BROWSERLESS_API_KEY || ''
+
+async function getBrowser() {
+  return chromium.connectOverCDP(`${BROWSERLESS_WS}?token=${BROWSERLESS_KEY}`)
+}
+
+async function analyzeSite(url: string) {
+  const browser = await getBrowser()
+  const page = await browser.newPage()
+  try {
+    await page.goto(url, { waitUntil: 'networkidle' })
+    const dom_snapshot = await page.content()
+    const nav_links = await page.$$eval('a[href]', (els) => els.map((el) => (el as HTMLAnchorElement).href).filter(Boolean))
+    const interactive_elements = await page.$$eval('button, [role="button"], input, select, textarea', (els) =>
+      els.map((el) => { const e = el as HTMLElement; return `${e.tagName.toLowerCase()} — "${e.textContent?.trim().slice(0, 60) || ''}"` })
+    )
+    return { dom_snapshot, nav_links, interactive_elements }
+  } finally { await browser.close() }
+}
+
+async function recordFlow(url: string, flow: any, outputDir: string) {
+  const browser = await getBrowser()
+  const page = await browser.newPage()
+  const click_events: any[] = []
+  const startTime = Date.now()
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const frames: Buffer[] = []
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Page.startScreencast', { format: 'png', quality: 80, maxWidth: 1280, maxHeight: 800, everyNthFrame: 1 })
+  cdp.on('Page.screencastFrame', async ({ data, sessionId }: any) => {
+    frames.push(Buffer.from(data, 'base64'))
+    await cdp.send('Page.screencastFrameAck', { sessionId })
+  })
+  try {
+    await page.goto(url, { waitUntil: 'networkidle' })
+    for (const step of flow.steps || []) {
+      if (step.action === 'click' && step.selector) {
+        const el = await page.waitForSelector(step.selector, { timeout: 5000 }).catch(() => null)
+        if (el) {
+          const box = await el.boundingBox()
+          if (box) click_events.push({ timestamp_ms: Date.now() - startTime, x: box.x + box.width / 2, y: box.y + box.height / 2, selector: step.selector, description: step.description })
+          await el.click()
+        }
+      } else if (step.action === 'navigate' && step.value) {
+        await page.goto(step.value, { waitUntil: 'networkidle' })
+      } else if (step.action === 'type' && step.selector && step.value) {
+        await page.fill(step.selector, step.value)
+      }
+      await page.waitForTimeout(800)
+    }
+    await cdp.send('Page.stopScreencast')
+    const fs = await import('fs/promises')
+    await fs.mkdir(outputDir, { recursive: true })
+    for (let i = 0; i < frames.length; i++) {
+      await fs.writeFile(`${outputDir}/frame_${String(i).padStart(5, '0')}.png`, frames[i])
+    }
+    return { flow_id: flow.id, frames_dir: outputDir, click_events, duration_ms: Date.now() - startTime }
+  } finally { await browser.close() }
+}
+
+async function detectFlows(url: string, dom_snapshot: string, nav_links: string[], interactive_elements: string[]) {
+  const response = await anthropic.messages.create({
+    model: MODEL, max_tokens: 4096,
+    messages: [{ role: 'user', content: `You are analyzing a web app to identify product demo flows.\nURL: ${url}\nInteractive elements:\n${interactive_elements.slice(0, 60).join('\n')}\nNav links:\n${nav_links.slice(0, 30).join('\n')}\nDOM (truncated):\n${dom_snapshot.slice(0, 8000)}\n\nIdentify 4-6 user flows for demo clips. Return ONLY a JSON array, each item with: title, description, steps (array of {order, action, selector?, value?, description}). No markdown.` }],
+  })
+  const text = response.content[0].type === 'text' ? response.content[0].text : '[]'
+  return JSON.parse(text.replace(/```json|```/g, '').trim())
+}
+
+async function generateScript(flow: any, dom_snapshot: string, click_events: any[]) {
+  const response = await anthropic.messages.create({
+    model: MODEL, max_tokens: 500,
+    messages: [{ role: 'user', content: `Write a 80-120 word narration script for a product demo video.\nFlow: "${flow.title}"\nSteps: ${flow.steps?.map((s: any, i: number) => `${i + 1}. ${s.description}`).join('\n')}\nTone: warm, direct, no filler words. End with what the user accomplished. Return only the narration text.` }],
+  })
+  return response.content[0].type === 'text' ? response.content[0].text : ''
+}
+
+async function regenerateScript(currentScript: string, instruction: string) {
+  const response = await anthropic.messages.create({
+    model: MODEL, max_tokens: 500,
+    messages: [{ role: 'user', content: `Rewrite this demo narration script:\n"${currentScript}"\nInstruction: ${instruction}\nKeep it 80-120 words. Return only the new narration text.` }],
+  })
+  return response.content[0].type === 'text' ? response.content[0].text : ''
+}
 import { encodeQueue, recordQueue, scriptQueue } from '../jobs/queues'
 import os from 'os'
 import path from 'path'
