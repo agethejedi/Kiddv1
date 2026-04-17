@@ -34,7 +34,7 @@ export default function HomePage() {
       </nav>
 
       <section style={styles.hero}>
-        <div style={styles.eyebrow}>AI-powered demo generation</div>
+        <div style={styles.eyebrow}>AI-powered demo generation.</div>
         <h1 style={styles.h1}>
           From URL to<br />
           <em style={{ fontStyle: 'italic', color: '#c8a96e' }}>demo video</em><br />
