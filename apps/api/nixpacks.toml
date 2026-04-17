@@ -1,0 +1,11 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm-9_x"]
+
+[phases.install]
+cmds = ["cd /app && npm install"]
+
+[phases.build]
+cmds = ["cd /app && npx tsc -p apps/api/tsconfig.json"]
+
+[start]
+cmd = "node /app/apps/api/dist/index.js"
