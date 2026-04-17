@@ -273,7 +273,8 @@ function startEncodeWorker() {
 
     if (!modalResponse.ok) throw new Error(`Modal encode failed: ${modalResponse.statusText}`)
 
-    const { result: videoUrl } = await modalResponse.json()
+    const modalResult = await modalResponse.json()
+    const videoUrl = modalResult.result as string
 
     await supabase.from('clips').update({
       video_url: videoUrl,
@@ -334,7 +335,8 @@ function startStitchWorker() {
 
     if (!modalResponse.ok) throw new Error(`Modal stitch failed: ${modalResponse.statusText}`)
 
-    const { result: finalUrl } = await modalResponse.json()
+    const stitchResult = await modalResponse.json()
+    const finalUrl = stitchResult.result as string
 
     await supabase.from('final_videos').insert({
       project_id,
