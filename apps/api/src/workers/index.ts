@@ -72,7 +72,7 @@ async function recordFlow(url: string, flow: any, outputDir: string) {
 async function detectFlows(url: string, dom_snapshot: string, nav_links: string[], interactive_elements: string[]) {
   const response = await anthropic.messages.create({
     model: MODEL, max_tokens: 4096,
-    messages: [{ role: 'user', content: `You are analyzing a web app to identify product demo flows.\nURL: ${url}\nInteractive elements:\n${interactive_elements.slice(0, 60).join('\n')}\nNav links:\n${nav_links.slice(0, 30).join('\n')}\nDOM (truncated):\n${dom_snapshot.slice(0, 8000)}\n\nIdentify 4-6 user flows for demo clips. Return ONLY a JSON array, each item with: title, description, steps (array of {order, action, selector?, value?, description}). No markdown.` }],
+    messages: [{ role: 'user', content: `You are analyzing a web app to identify product demo flows.\nURL: ${url}\nInteractive elements:\n${interactive_elements.slice(0, 30).join('\n')}\nNav links:\n${nav_links.slice(0, 30).join('\n')}\nDOM (truncated):\n${dom_snapshot.slice(0, 2000)}\n\nIdentify 4-6 user flows for demo clips. Return ONLY a JSON array, each item with: title, description, steps (array of {order, action, selector?, value?, description}). No markdown.` }],
   })
   const text = response.content[0].type === 'text' ? response.content[0].text : '[]'
   return JSON.parse(text.replace(/```json|```/g, '').trim())
@@ -84,29 +84,43 @@ async function detectFlowFromDescription(
   dom_snapshot: string,
   interactive_elements: string[]
 ) {
+  // Build a simple flow directly from the description without relying on DOM
+  // This avoids Claude timeouts on large sites
+  const title = description.replace(/^how do i /i, '').replace(/^how to /i, '')
+  const capitalised = title.charAt(0).toUpperCase() + title.slice(1)
+
   const response = await anthropic.messages.create({
-    model: MODEL, max_tokens: 2048,
-    messages: [{ role: 'user', content: `You are building a single product demo flow based on a user's description.
+    model: MODEL, max_tokens: 1024,
+    messages: [{ role: 'user', content: `Create a browser automation flow for this task on : ""
 
-URL: ${url}
-User wants to demo: "${description}"
+Return ONLY a JSON array with ONE flow object:
+{
+  "title": "",
+  "description": "one sentence",
+  "steps": [
+    {"order":1,"action":"navigate","value":"","description":"Go to the website"},
+    {"order":2,"action":"scroll","description":"Scroll to find relevant content"},
+    {"order":3,"action":"wait","value":"2000","description":"Wait for page to load"}
+  ]
+}
 
-Interactive elements found on page:
-${interactive_elements.slice(0, 80).join('\n')}
-
-DOM (truncated):
-${dom_snapshot.slice(0, 6000)}
-
-Create ONE precise flow that demonstrates exactly what the user described.
-Return ONLY a JSON array with a single flow object containing:
-- title: concise action-oriented title (e.g. "Finding Form 5498 Instructions")
-- description: one sentence explaining what this demo shows
-- steps: array of steps, each with: order, action (navigate|click|type|scroll|wait), selector (CSS selector for click/type), value (URL for navigate, text for type), description (plain English)
-
-Focus on the exact user task. Keep steps minimal and precise. No markdown, no explanation.` }],
+Keep steps simple: navigate, scroll, wait actions only (no click selectors needed for informational flows). No markdown.` }],
   })
   const text = response.content[0].type === 'text' ? response.content[0].text : '[]'
-  return JSON.parse(text.replace(/```json|```/g, '').trim())
+  try {
+    return JSON.parse(text.replace(/```json|```/g, '').trim())
+  } catch {
+    // Fallback: create a minimal flow if Claude fails
+    return [{
+      title: capitalised,
+      description: description,
+      steps: [
+        { order: 1, action: 'navigate', value: url, description: 'Go to the website' },
+        { order: 2, action: 'scroll', description: 'Scroll through the page' },
+        { order: 3, action: 'wait', value: '2000', description: 'Review the content' },
+      ]
+    }]
+  }
 }
 
 async function generateScript(flow: any, dom_snapshot: string, click_events: any[]) {
