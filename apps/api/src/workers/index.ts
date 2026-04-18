@@ -109,7 +109,7 @@ Focus on the exact user task. Keep steps minimal and precise. No markdown, no ex
   return JSON.parse(text.replace(/```json|```/g, '').trim())
 }
 
-
+async function generateScript(flow: any, dom_snapshot: string, click_events: any[]) {
   const response = await anthropic.messages.create({
     model: MODEL, max_tokens: 500,
     messages: [{ role: 'user', content: `Write a 80-120 word narration script for a product demo video.\nFlow: "${flow.title}"\nSteps: ${flow.steps?.map((s: any, i: number) => `${i + 1}. ${s.description}`).join('\n')}\nTone: warm, direct, no filler words. End with what the user accomplished. Return only the narration text.` }],
