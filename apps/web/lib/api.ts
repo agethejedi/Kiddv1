@@ -14,10 +14,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // Projects
-  createProject: (url: string) =>
+  createProject: (url: string, flow_description?: string) =>
     request<{ id: string; url: string; status: string }>('/api/projects', {
       method: 'POST',
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, flow_description }),
     }),
 
   getProject: (id: string) =>
@@ -73,4 +73,3 @@ export const api = {
       `/api/stitch/${jobId}`
     ),
 }
-

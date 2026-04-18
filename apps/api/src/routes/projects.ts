@@ -7,12 +7,13 @@ export const projectsRouter = Router()
 
 const CreateProjectSchema = z.object({
   url: z.string().url(),
+  flow_description: z.string().optional(),
 })
 
 // POST /api/projects — create a new project and kick off site analysis
 projectsRouter.post('/', async (req, res) => {
   try {
-    const { url } = CreateProjectSchema.parse(req.body)
+    const { url, flow_description } = CreateProjectSchema.parse(req.body)
 
     const { data: project, error } = await supabase
       .from('projects')
@@ -25,7 +26,7 @@ projectsRouter.post('/', async (req, res) => {
     }
 
     // Enqueue analysis job
-    await analyzeQueue.add('analyze', { project_id: project.id, url })
+    await analyzeQueue.add('analyze', { project_id: project.id, url, flow_description })
 
     return res.status(201).json(project)
   } catch (err) {

@@ -78,7 +78,38 @@ async function detectFlows(url: string, dom_snapshot: string, nav_links: string[
   return JSON.parse(text.replace(/```json|```/g, '').trim())
 }
 
-async function generateScript(flow: any, dom_snapshot: string, click_events: any[]) {
+async function detectFlowFromDescription(
+  url: string,
+  description: string,
+  dom_snapshot: string,
+  interactive_elements: string[]
+) {
+  const response = await anthropic.messages.create({
+    model: MODEL, max_tokens: 2048,
+    messages: [{ role: 'user', content: `You are building a single product demo flow based on a user's description.
+
+URL: ${url}
+User wants to demo: "${description}"
+
+Interactive elements found on page:
+${interactive_elements.slice(0, 80).join('\n')}
+
+DOM (truncated):
+${dom_snapshot.slice(0, 6000)}
+
+Create ONE precise flow that demonstrates exactly what the user described.
+Return ONLY a JSON array with a single flow object containing:
+- title: concise action-oriented title (e.g. "Finding Form 5498 Instructions")
+- description: one sentence explaining what this demo shows
+- steps: array of steps, each with: order, action (navigate|click|type|scroll|wait), selector (CSS selector for click/type), value (URL for navigate, text for type), description (plain English)
+
+Focus on the exact user task. Keep steps minimal and precise. No markdown, no explanation.` }],
+  })
+  const text = response.content[0].type === 'text' ? response.content[0].text : '[]'
+  return JSON.parse(text.replace(/```json|```/g, '').trim())
+}
+
+
   const response = await anthropic.messages.create({
     model: MODEL, max_tokens: 500,
     messages: [{ role: 'user', content: `Write a 80-120 word narration script for a product demo video.\nFlow: "${flow.title}"\nSteps: ${flow.steps?.map((s: any, i: number) => `${i + 1}. ${s.description}`).join('\n')}\nTone: warm, direct, no filler words. End with what the user accomplished. Return only the narration text.` }],
@@ -111,19 +142,37 @@ export function startWorkers() {
 // Crawls the site, detects flows, saves them to DB, queues recording jobs
 function startAnalyzeWorker() {
   new Worker('analyze', async (job) => {
-    const { project_id, url } = job.data
+    const { project_id, url, flow_description } = job.data
 
     await supabase.from('projects').update({ status: 'analyzing' }).eq('id', project_id)
-    await log(project_id, `Launching browser and navigating to ${url}`)
 
-    const { dom_snapshot, nav_links, interactive_elements } = await analyzeSite(url)
-    await log(project_id, `Page loaded — found ${interactive_elements.length} interactive elements`, 'ok')
+    let flows: any[]
 
-    await log(project_id, 'Identifying demo flows with Claude...')
-    const flows = await detectFlows(url, dom_snapshot, nav_links, interactive_elements)
-    await log(project_id, `Detected ${flows.length} flows`, 'ok')
+    if (flow_description) {
+      // User described the flow — skip crawling, go straight to Claude
+      await log(project_id, `User-directed flow: "${flow_description}"`)
+      await log(project_id, `Launching browser and navigating to ${url}`)
 
-    // Save flows to DB
+      const { dom_snapshot, nav_links, interactive_elements } = await analyzeSite(url)
+      await log(project_id, `Page loaded — found ${interactive_elements.length} interactive elements`, 'ok')
+
+      await log(project_id, 'Building flow from your description...')
+
+      // Ask Claude to build a single precise flow from the description
+      flows = await detectFlowFromDescription(url, flow_description, dom_snapshot, interactive_elements)
+      await log(project_id, `Flow ready: "${flows[0]?.title}"`, 'ok')
+    } else {
+      // Auto-detect mode — full crawl
+      await log(project_id, `Launching browser and navigating to ${url}`)
+      const { dom_snapshot, nav_links, interactive_elements } = await analyzeSite(url)
+      await log(project_id, `Page loaded — found ${interactive_elements.length} interactive elements`, 'ok')
+
+      await log(project_id, 'Identifying demo flows with Claude...')
+      flows = await detectFlows(url, dom_snapshot, nav_links, interactive_elements)
+      await log(project_id, `Detected ${flows.length} flows`, 'ok')
+    }
+
+    // Save flows to DB and queue recording
     for (const flow of flows) {
       const { data: savedFlow } = await supabase
         .from('flows')
@@ -132,7 +181,6 @@ function startAnalyzeWorker() {
         .single()
 
       if (savedFlow) {
-        // Queue a recording job per flow
         await recordQueue.add('record', { project_id, flow_id: savedFlow.id, url })
         await log(project_id, `Flow queued for recording: "${flow.title}"`)
       }
