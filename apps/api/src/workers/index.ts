@@ -285,7 +285,7 @@ function startScriptWorker() {
 }
 
 // ── Encode Worker ──────────────────────────────────────────────────────────────
-// Calls Modal to run ffmpeg, saves final clip URL
+// Runs ffmpeg locally on Railway to encode the clip
 function startEncodeWorker() {
   new Worker('encode', async (job) => {
     const { project_id, flow_id, clip_id } = job.data
@@ -298,31 +298,61 @@ function startEncodeWorker() {
     await supabase.from('clips').update({ status: 'encoding' }).eq('id', clip_id)
     await log(project_id, `Encoding clip: "${clip.title}"`)
 
-    // Call Modal encode function via HTTP
-    const modalResponse = await fetch(
-      `https://api.modal.com/v1/functions/demoagent-encoder/encode_clip/call`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Token ${process.env.MODAL_TOKEN_ID}:${process.env.MODAL_TOKEN_SECRET}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          frames_dir: flow.frames_dir,
-          audio_url: clip.audio_url,
-          click_events: flow.click_events || [],
-          title: clip.title,
-          duration_seconds: (flow.duration_ms || 30000) / 1000,
-          output_key: `clips/${clip_id}/clip.mp4`,
-          r2_config: r2Config(),
-        }),
-      }
+    const { execSync } = await import('child_process')
+    const fs = await import('fs/promises')
+    const tmpDir = `/tmp/demoagent/${clip_id}`
+    await fs.mkdir(tmpDir, { recursive: true })
+
+    const rawVideo = `${tmpDir}/raw.mp4`
+    const finalVideo = `${tmpDir}/final.mp4`
+    const audioFile = `${tmpDir}/narration.mp3`
+
+    // Download narration audio
+    const audioRes = await fetch(clip.audio_url)
+    const audioBuffer = await audioRes.arrayBuffer()
+    await fs.writeFile(audioFile, Buffer.from(audioBuffer))
+
+    // Step 1: Assemble frames into raw video
+    execSync(
+      `ffmpeg -y -framerate 30 -i "${flow.frames_dir}/frame_%05d.png" -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
+      { stdio: 'pipe' }
     )
 
-    if (!modalResponse.ok) throw new Error(`Modal encode failed: ${modalResponse.statusText}`)
+    // Step 2: Build click overlay + title filter
+    const clickFilters = (flow.click_events || []).map((e: any) => {
+      const t = (e.timestamp_ms / 1000).toFixed(2)
+      return `drawcircle=x=${Math.round(e.x)}:y=${Math.round(e.y)}:r=24:color=0xFF5722@0.85:enable='between(t,${t},${(parseFloat(t) + 0.6).toFixed(2)})'`
+    })
+    const safeTitle = clip.title.replace(/'/g, "\'")
+    const titleFilter = `drawtext=text='${safeTitle}':fontsize=28:fontcolor=white:x=48:y=h-80:box=1:boxcolor=black@0.55:boxborderw=10:enable='between(t,0.5,3.5)'`
+    const allFilters = [...clickFilters, titleFilter].join(',')
 
-    const modalResult = await modalResponse.json()
-    const videoUrl = modalResult.result as string
+    // Step 3: Combine video + overlays + audio
+    execSync(
+      `ffmpeg -y -i "${rawVideo}" -i "${audioFile}" -vf "${allFilters}" -c:v libx264 -c:a aac -shortest -preset fast -pix_fmt yuv420p "${finalVideo}"`,
+      { stdio: 'pipe' }
+    )
+
+    // Step 4: Upload to R2
+    const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3')
+    const { createReadStream } = await import('fs')
+    const r2 = new S3Client({
+      endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+      },
+      region: 'auto',
+    })
+    const outputKey = `clips/${clip_id}/clip.mp4`
+    await r2.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME!,
+      Key: outputKey,
+      Body: createReadStream(finalVideo),
+      ContentType: 'video/mp4',
+    }))
+
+    const videoUrl = `${process.env.R2_PUBLIC_URL}/${outputKey}`
 
     await supabase.from('clips').update({
       video_url: videoUrl,
@@ -332,11 +362,12 @@ function startEncodeWorker() {
 
     await log(project_id, `Clip ready: "${clip.title}"`, 'ok')
 
-    // Check if all clips for this project are ready
+    // Cleanup tmp files
+    await fs.rm(tmpDir, { recursive: true, force: true })
+
+    // Check if all clips ready
     const { data: allClips } = await supabase
-      .from('clips')
-      .select('status')
-      .eq('project_id', project_id)
+      .from('clips').select('status').eq('project_id', project_id)
 
     const allReady = allClips?.every((c) => c.status === 'ready')
     if (allReady) {
