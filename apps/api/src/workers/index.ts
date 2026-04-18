@@ -84,44 +84,29 @@ async function detectFlowFromDescription(
   dom_snapshot: string,
   interactive_elements: string[]
 ) {
-  // Build a simple flow directly from the description without relying on DOM
-  // This avoids Claude timeouts on large sites
-  const title = description.replace(/^how do i /i, '').replace(/^how to /i, '')
+  // Skip Claude for flow building — build directly from description
+  // This avoids network timeouts. Claude is used later for narration script only.
+  const title = description
+    .replace(/^how do i /i, '')
+    .replace(/^how to /i, '')
+    .replace(/^where do i /i, '')
+    .replace(/\?$/, '')
+    .trim()
   const capitalised = title.charAt(0).toUpperCase() + title.slice(1)
 
-  const response = await anthropic.messages.create({
-    model: MODEL, max_tokens: 1024,
-    messages: [{ role: 'user', content: `Create a browser automation flow for this task on : ""
-
-Return ONLY a JSON array with ONE flow object:
-{
-  "title": "",
-  "description": "one sentence",
-  "steps": [
-    {"order":1,"action":"navigate","value":"","description":"Go to the website"},
-    {"order":2,"action":"scroll","description":"Scroll to find relevant content"},
-    {"order":3,"action":"wait","value":"2000","description":"Wait for page to load"}
-  ]
+  return [{
+    title: capitalised,
+    description: description,
+    steps: [
+      { order: 1, action: 'navigate', value: url, description: 'Navigate to the website' },
+      { order: 2, action: 'wait', value: '2000', description: 'Wait for the page to fully load' },
+      { order: 3, action: 'scroll', description: 'Scroll down to explore the page content' },
+      { order: 4, action: 'wait', value: '1500', description: 'Review the available options and navigation' },
+      { order: 5, action: 'scroll', description: 'Continue scrolling to find relevant information' },
+    ]
+  }]
 }
 
-Keep steps simple: navigate, scroll, wait actions only (no click selectors needed for informational flows). No markdown.` }],
-  })
-  const text = response.content[0].type === 'text' ? response.content[0].text : '[]'
-  try {
-    return JSON.parse(text.replace(/```json|```/g, '').trim())
-  } catch {
-    // Fallback: create a minimal flow if Claude fails
-    return [{
-      title: capitalised,
-      description: description,
-      steps: [
-        { order: 1, action: 'navigate', value: url, description: 'Go to the website' },
-        { order: 2, action: 'scroll', description: 'Scroll through the page' },
-        { order: 3, action: 'wait', value: '2000', description: 'Review the content' },
-      ]
-    }]
-  }
-}
 
 async function generateScript(flow: any, dom_snapshot: string, click_events: any[]) {
   const response = await anthropic.messages.create({
