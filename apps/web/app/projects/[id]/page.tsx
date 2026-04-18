@@ -26,7 +26,7 @@ export default function ProjectPage() {
   const [loading, setLoading] = useState(true)
 
   const loadProject = useCallback(async () => {
-    try { const data = await api.getProject(projectId); setProject(data); setLoading(false) }
+    try { const data = await api.getProject(projectId); setProject(data as unknown as Project); setLoading(false) }
     catch { setLoading(false) }
   }, [projectId])
 
