@@ -6,7 +6,7 @@ import { generateAudio } from '../lib/tts'
 import Anthropic from '@anthropic-ai/sdk'
 import { chromium } from 'playwright-core'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 30000, maxRetries: 1 })
 const MODEL = 'claude-sonnet-4-20250514'
 const BROWSERLESS_WS = process.env.BROWSERLESS_WS_ENDPOINT || 'wss://chrome.browserless.io'
 const BROWSERLESS_KEY = process.env.BROWSERLESS_API_KEY || ''
@@ -109,11 +109,24 @@ async function detectFlowFromDescription(
 
 
 async function generateScript(flow: any, dom_snapshot: string, click_events: any[]) {
-  const response = await anthropic.messages.create({
-    model: MODEL, max_tokens: 500,
-    messages: [{ role: 'user', content: `Write a 80-120 word narration script for a product demo video.\nFlow: "${flow.title}"\nSteps: ${flow.steps?.map((s: any, i: number) => `${i + 1}. ${s.description}`).join('\n')}\nTone: warm, direct, no filler words. End with what the user accomplished. Return only the narration text.` }],
-  })
-  return response.content[0].type === 'text' ? response.content[0].text : ''
+  try {
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Claude timeout')), 20000)
+    )
+    const claudePromise = anthropic.messages.create({
+      model: MODEL, max_tokens: 500,
+      messages: [{ role: 'user', content: `Write a 80-120 word narration script for a product demo video. Flow: "${flow.title}". Steps: ${flow.steps?.map((s: any, i: number) => `${i + 1}. ${s.description}`).join('. ')}. Tone: warm, direct. Return only the narration text.` }],
+    })
+    const response = await Promise.race([claudePromise, timeoutPromise]) as any
+    return response.content[0].type === 'text' ? response.content[0].text : generateFallbackScript(flow)
+  } catch (err) {
+    console.error('generateScript error:', err)
+    return generateFallbackScript(flow)
+  }
+}
+
+function generateFallbackScript(flow: any): string {
+  return `Welcome to this quick demo showing you how to ${flow.title.toLowerCase()}. We start by navigating to the website and exploring the available options. Follow along as we scroll through the page to locate exactly what you need. By the end of this clip, you will know precisely where to find this information and how to access it quickly on your own.`
 }
 
 async function regenerateScript(currentScript: string, instruction: string) {
