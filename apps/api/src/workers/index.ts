@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { chromium } from 'playwright-core'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 30000, maxRetries: 1 })
-const MODEL = 'claude-sonnet-4-20250514'
+const MODEL = 'claude-sonnet-4-5'
 const BROWSERLESS_WS = process.env.BROWSERLESS_WS_ENDPOINT || 'wss://chrome.browserless.io'
 const BROWSERLESS_KEY = process.env.BROWSERLESS_API_KEY || ''
 
