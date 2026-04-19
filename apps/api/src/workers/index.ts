@@ -276,7 +276,7 @@ function startRecordWorker() {
 
     if (frames.length > 0) {
       execSync(
-        `ffmpeg -y -framerate 15 -i "${framesDir}/frame_%05d.png" -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
+        `ffmpeg -y -framerate 15 -i "${framesDir}/frame_%05d.png" -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -profile:v baseline -level 3.0 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
         { stdio: 'pipe' }
       )
     } else {
@@ -297,7 +297,7 @@ function startRecordWorker() {
     const vf = [...clickFilters, titleFilter].filter(Boolean).join(',') || titleFilter
 
     execSync(
-      `ffmpeg -y -i "${rawVideo}" -i "${audioFile}" -vf "${vf}" -c:v libx264 -c:a aac -shortest -preset fast -pix_fmt yuv420p -movflags +faststart "${finalVideo}"`,
+      `ffmpeg -y -i "${rawVideo}" -i "${audioFile}" -vf "${vf},scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -profile:v baseline -level 3.0 -c:a aac -ar 44100 -shortest -preset fast -pix_fmt yuv420p -movflags +faststart "${finalVideo}"`,
       { stdio: 'pipe' }
     )
 
