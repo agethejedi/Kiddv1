@@ -182,60 +182,169 @@ function startRecordWorker() {
     const { project_id, flow_id, url } = job.data
     const { data: flow } = await supabase.from('flows').select('*').eq('id', flow_id).single()
     if (!flow) throw new Error(`Flow ${flow_id} not found`)
+
     await supabase.from('flows').update({ status: 'recording' }).eq('id', flow_id)
     await log(project_id, `Recording flow: "${flow.title}"`)
-    const outputDir = path.join(os.tmpdir(), 'demoagent', flow_id, 'frames')
-    await mkdir(outputDir, { recursive: true })
-    const recording = await recordFlow(url, flow, outputDir)
-    await log(project_id, `Recording complete — ${recording.click_events.length} click events captured`, 'ok')
-    await supabase.from('flows').update({
-      click_events: recording.click_events,
-      frames_dir: outputDir,
-      duration_ms: recording.duration_ms,
-    }).eq('id', flow_id)
-    await scriptQueue.add('generate-script', { project_id, flow_id })
-  }, { connection: redis, concurrency: 3 })
+
+    // ── Step 1: Record browser session (frames stay in memory for this job) ──
+    const tmpBase = path.join(os.tmpdir(), 'demoagent', flow_id)
+    const framesDir = path.join(tmpBase, 'frames')
+    await mkdir(framesDir, { recursive: true })
+
+    const browser = await getBrowser()
+    const page = await browser.newPage()
+    await page.setViewportSize({ width: 1280, height: 800 })
+    const frames: Buffer[] = []
+    const click_events: any[] = []
+    const startTime = Date.now()
+
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send('Page.startScreencast', { format: 'png', quality: 80, maxWidth: 1280, maxHeight: 800, everyNthFrame: 2 })
+    cdp.on('Page.screencastFrame', async ({ data, sessionId }: any) => {
+      frames.push(Buffer.from(data, 'base64'))
+      await cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {})
+    })
+
+    try {
+      for (const step of flow.steps || []) {
+        if (step.action === 'navigate' && step.value) {
+          await page.goto(step.value, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
+        } else if (step.action === 'click' && step.selector) {
+          const el = await page.waitForSelector(step.selector, { timeout: 3000 }).catch(() => null)
+          if (el) {
+            const box = await el.boundingBox()
+            if (box) click_events.push({ timestamp_ms: Date.now() - startTime, x: box.x + box.width / 2, y: box.y + box.height / 2 })
+            await el.click().catch(() => {})
+          }
+        } else if (step.action === 'scroll') {
+          await page.evaluate(() => window.scrollBy(0, 400))
+        } else if (step.action === 'wait' && step.value) {
+          await page.waitForTimeout(parseInt(step.value) || 1000)
+        }
+        await page.waitForTimeout(600)
+      }
+      // Extra scroll at end to show more content
+      await page.waitForTimeout(1000)
+      await page.evaluate(() => window.scrollBy(0, 300))
+      await page.waitForTimeout(1000)
+    } finally {
+      await cdp.send('Page.stopScreencast').catch(() => {})
+      await browser.close()
+    }
+
+    await log(project_id, `Recording complete — ${frames.length} frames, ${click_events.length} clicks`, 'ok')
+
+    // Write frames to disk immediately (still in same job)
+    for (let i = 0; i < frames.length; i++) {
+      await fsPromises.writeFile(`${framesDir}/frame_${String(i).padStart(5, '0')}.png`, frames[i])
+    }
+
+    const duration_ms = Date.now() - startTime
+    await supabase.from('flows').update({ click_events, frames_dir: framesDir, duration_ms }).eq('id', flow_id)
+
+    // ── Step 2: Generate script (same job) ──
+    await log(project_id, `Generating narration script for: "${flow.title}"`)
+    const script = await generateScript(flow, '', click_events)
+    const { data: clipRecord } = await supabase.from('clips').insert({
+      flow_id, project_id, title: flow.title, narration_script: script,
+      voice: 'nova', music: 'soft-ambient', status: 'pending',
+    }).select().single()
+    const clip_id = clipRecord?.id
+    if (!clip_id) throw new Error('Failed to create clip record')
+
+    // ── Step 3: Generate audio (same job) ──
+    await log(project_id, `Script ready — generating audio`, 'ok')
+    const audioPath = path.join(tmpBase, 'narration.mp3')
+    try {
+      await generateAudio(script, 'nova', audioPath)
+      await log(project_id, `Audio generated successfully`)
+    } catch {
+      execSync(`ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t ${Math.ceil(duration_ms/1000)} -q:a 9 -acodec libmp3lame "${audioPath}"`, { stdio: 'pipe' })
+      await log(project_id, `Using silent audio fallback`)
+    }
+    const audioKey = `audio/${flow_id}/narration.mp3`
+    const audioUrl = await uploadFile(audioKey, audioPath, 'audio/mpeg')
+    await supabase.from('clips').update({ audio_url: audioUrl }).eq('id', clip_id)
+
+    // ── Step 4: Encode video (same job — frames still on disk) ──
+    await log(project_id, `Encoding clip: "${flow.title}"`)
+    await supabase.from('clips').update({ status: 'encoding' }).eq('id', clip_id)
+
+    const rawVideo = path.join(tmpBase, 'raw.mp4')
+    const finalVideo = path.join(tmpBase, 'final.mp4')
+    const audioFile = audioPath
+
+    if (frames.length > 0) {
+      execSync(
+        `ffmpeg -y -framerate 15 -i "${framesDir}/frame_%05d.png" -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
+        { stdio: 'pipe' }
+      )
+    } else {
+      execSync(
+        `ffmpeg -y -f lavfi -i color=c=0x0a0a0f:size=1280x800:rate=15 -t 30 -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
+        { stdio: 'pipe' }
+      )
+    }
+
+    // Click circle overlays
+    const clickFilters = click_events.map((e: any) => {
+      const t = (e.timestamp_ms / 1000).toFixed(2)
+      const end = (parseFloat(t) + 0.8).toFixed(2)
+      return `drawcircle=x=${Math.round(e.x)}:y=${Math.round(e.y)}:r=28:color=0xFF5722@0.85:enable='between(t,${t},${end})'`
+    })
+    const safeTitle = flow.title.replace(/['"\:]/g, ' ').trim()
+    const titleFilter = `drawtext=text='${safeTitle}':fontsize=26:fontcolor=white:x=40:y=h-72:box=1:boxcolor=black@0.6:boxborderw=10:enable='between(t,0,4)'`
+    const vf = [...clickFilters, titleFilter].filter(Boolean).join(',') || titleFilter
+
+    execSync(
+      `ffmpeg -y -i "${rawVideo}" -i "${audioFile}" -vf "${vf}" -c:v libx264 -c:a aac -shortest -preset fast -pix_fmt yuv420p -movflags +faststart "${finalVideo}"`,
+      { stdio: 'pipe' }
+    )
+
+    // Upload final video to R2
+    const r2 = new S3Client({
+      endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: { accessKeyId: process.env.R2_ACCESS_KEY_ID!, secretAccessKey: process.env.R2_SECRET_ACCESS_KEY! },
+      region: 'auto',
+    })
+    const outputKey = `clips/${clip_id}/clip.mp4`
+    await r2.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME!, Key: outputKey,
+      Body: createReadStream(finalVideo), ContentType: 'video/mp4',
+    }))
+    const videoUrl = `${process.env.R2_PUBLIC_URL}/${outputKey}`
+
+    await supabase.from('clips').update({
+      video_url: videoUrl, status: 'ready',
+      duration_seconds: Math.round(duration_ms / 1000),
+    }).eq('id', clip_id)
+
+    await log(project_id, `Clip ready: "${flow.title}"`, 'ok')
+
+    // Cleanup
+    await fsPromises.rm(tmpBase, { recursive: true, force: true }).catch(() => {})
+
+    const { data: allClips } = await supabase.from('clips').select('status').eq('project_id', project_id)
+    if (allClips?.every((c) => c.status === 'ready')) {
+      await supabase.from('projects').update({ status: 'ready' }).eq('id', project_id)
+      await log(project_id, 'All clips ready for review', 'ok')
+    }
+
+  }, { connection: redis, concurrency: 1 })
 }
 
 function startScriptWorker() {
+  // Script worker kept for regen use cases only
   new Worker('script', async (job) => {
     const { project_id, flow_id, clip_id, instruction } = job.data
-    const { data: flow } = await supabase.from('flows').select('*, clips(*)').eq('id', flow_id).single()
+    if (!instruction || !clip_id) return
+    const { data: flow } = await supabase.from('flows').select('*').eq('id', flow_id).single()
     if (!flow) throw new Error(`Flow ${flow_id} not found`)
-    let script: string
-    let targetClipId = clip_id
-    if (instruction && clip_id) {
-      const { data: clip } = await supabase.from('clips').select('*').eq('id', clip_id).single()
-      await log(project_id, `Regenerating script for: "${flow.title}"`)
-      script = await regenerateScript(clip.narration_script, instruction)
-    } else {
-      await log(project_id, `Generating narration script for: "${flow.title}"`)
-      script = await generateScript(flow, flow.dom_snapshot || '', flow.click_events || [])
-      const { data: clip } = await supabase.from('clips').insert({
-        flow_id, project_id, title: flow.title, narration_script: script,
-        voice: 'nova', music: 'soft-ambient', status: 'pending',
-      }).select().single()
-      targetClipId = clip?.id
-    }
-    await log(project_id, `Script ready — generating audio`, 'ok')
-    const { data: clip } = await supabase.from('clips').select('voice').eq('id', targetClipId).single()
-    const audioPath = path.join(os.tmpdir(), 'demoagent', flow_id, 'narration.mp3')
-    await mkdir(path.dirname(audioPath), { recursive: true })
-    try {
-      await generateAudio(script, clip?.voice || 'nova', audioPath)
-      await log(project_id, `Audio generated successfully`)
-    } catch (audioErr) {
-      console.error('Audio generation failed:', audioErr)
-      await log(project_id, `Audio generation failed — continuing with silent audio`)
-      execSync(`ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 30 -q:a 9 -acodec libmp3lame "${audioPath}"`, { stdio: 'pipe' })
-    }
-    await log(project_id, `Uploading audio to storage...`)
-    const audioKey = `audio/${flow_id}/narration.mp3`
-    const audioUrl = await uploadFile(audioKey, audioPath, 'audio/mpeg')
-    await log(project_id, `Audio uploaded`, 'ok')
-    await supabase.from('clips').update({ narration_script: script, audio_url: audioUrl, status: 'pending' }).eq('id', targetClipId)
-    await log(project_id, `Queuing encode job...`)
-    await encodeQueue.add('encode', { project_id, flow_id, clip_id: targetClipId })
+    const { data: clip } = await supabase.from('clips').select('*').eq('id', clip_id).single()
+    await log(project_id, `Regenerating script for: "${flow.title}"`)
+    const script = await regenerateScript(clip.narration_script, instruction)
+    await supabase.from('clips').update({ narration_script: script }).eq('id', clip_id)
+    await log(project_id, `Script updated`, 'ok')
   }, { connection: redis })
 }
 
@@ -258,38 +367,30 @@ function startEncodeWorker() {
     const audioBuffer = await audioRes.arrayBuffer()
     await fsPromises.writeFile(audioFile, Buffer.from(audioBuffer))
 
-    let framesExist = false
-    try {
-      if (flow.frames_dir) {
-        const files = await fsPromises.readdir(flow.frames_dir)
-        framesExist = files.some((f: string) => f.endsWith('.png'))
-      }
-    } catch { framesExist = false }
+    // Use screenshot from R2 if available, otherwise title card
+    const screenshotUrl = flow.frames_dir && flow.frames_dir.startsWith('http') ? flow.frames_dir : ''
+    const screenshotPath = `${tmpDir}/screenshot.png`
 
-    await log(project_id, `Frames available: ${framesExist}`)
-
-    if (framesExist) {
+    if (screenshotUrl) {
+      await log(project_id, `Using page screenshot for video`)
+      const imgRes = await fetch(screenshotUrl)
+      const imgBuffer = await imgRes.arrayBuffer()
+      await fsPromises.writeFile(screenshotPath, Buffer.from(imgBuffer))
       execSync(
-        `ffmpeg -y -framerate 30 -i "${flow.frames_dir}/frame_%05d.png" -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
+        `ffmpeg -y -loop 1 -i "${screenshotPath}" -t 30 -c:v libx264 -pix_fmt yuv420p -preset fast -vf "scale=1280:800:force_original_aspect_ratio=decrease,pad=1280:800:(ow-iw)/2:(oh-ih)/2" "${rawVideo}"`,
         { stdio: 'pipe' }
       )
     } else {
-      const cardTitle = clip.title.replace(/'/g, "\\'").replace(/:/g, '\\:')
+      await log(project_id, `No screenshot — using title card`)
       execSync(
-        `ffmpeg -y -f lavfi -i color=c=0x0a0a0f:size=1280x800:rate=30 -vf "drawtext=text='${cardTitle}':fontsize=48:fontcolor=0xc8a96e:x=(w-text_w)/2:y=(h-text_h)/2" -t 30 -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
+        `ffmpeg -y -f lavfi -i color=c=0x0a0a0f:size=1280x800:rate=30 -t 30 -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
         { stdio: 'pipe' }
       )
     }
 
-    const clickFilters = (flow.click_events || []).map((e: any) => {
-      const t = (e.timestamp_ms / 1000).toFixed(2)
-      return `drawcircle=x=${Math.round(e.x)}:y=${Math.round(e.y)}:r=24:color=0xFF5722@0.85:enable='between(t,${t},${(parseFloat(t) + 0.6).toFixed(2)})'`
-    })
-    const safeTitle = clip.title.replace(/'/g, "\\'").replace(/:/g, '\\:')
-    const titleFilter = framesExist
-      ? `drawtext=text='${safeTitle}':fontsize=28:fontcolor=white:x=48:y=h-80:box=1:boxcolor=black@0.55:boxborderw=10:enable='between(t,0.5,3.5)'`
-      : `drawtext=text='${safeTitle}':fontsize=28:fontcolor=white:x=48:y=h-80:box=1:boxcolor=black@0.55:boxborderw=10`
-    const allFilters = clickFilters.length > 0 ? [...clickFilters, titleFilter].join(',') : titleFilter
+    const safeTitle = clip.title.replace(/['":]/g, ' ')
+    const titleFilter = `drawtext=text='${safeTitle}':fontsize=28:fontcolor=white:x=48:y=h-80:box=1:boxcolor=black@0.55:boxborderw=10`
+    const allFilters = titleFilter
 
     execSync(
       `ffmpeg -y -i "${rawVideo}" -i "${audioFile}" -vf "${allFilters}" -c:v libx264 -c:a aac -shortest -preset fast -pix_fmt yuv420p -movflags +faststart "${finalVideo}"`,
