@@ -198,57 +198,60 @@ function startRecordWorker() {
     const click_events: any[] = []
     const startTime = Date.now()
 
-    // Use interval-based screenshots instead of CDP screencast
-    // CDP screencast gets throttled by Browserless; polling is more reliable
-    let capturing = true
-    const captureInterval = setInterval(async () => {
-      if (!capturing) return
-      try {
-        const buf = await page.screenshot({ type: 'png' })
-        frames.push(buf)
-      } catch { /* ignore errors during capture */ }
-    }, 500) // screenshot every 500ms = ~2fps
+    // Helper: take N screenshots with delay between each
+    async function captureFrames(count: number, delayMs: number) {
+      for (let i = 0; i < count; i++) {
+        try {
+          const buf = await page.screenshot({ type: 'png' })
+          frames.push(buf)
+        } catch { /* ignore */ }
+        if (i < count - 1) await page.waitForTimeout(delayMs)
+      }
+    }
 
     try {
       for (const step of flow.steps || []) {
         if (step.action === 'navigate' && step.value) {
           await page.goto(step.value, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {})
-          await page.waitForTimeout(4000)
+          // Capture 10 frames over 5 seconds on landing page
+          await captureFrames(10, 500)
         } else if (step.action === 'click' && step.selector) {
           const el = await page.waitForSelector(step.selector, { timeout: 5000 }).catch(() => null)
           if (el) {
             const box = await el.boundingBox()
             if (box) click_events.push({ timestamp_ms: Date.now() - startTime, x: box.x + box.width / 2, y: box.y + box.height / 2 })
             await el.click().catch(() => {})
-            await page.waitForTimeout(3000)
+            // Capture 6 frames over 3 seconds after click
+            await captureFrames(6, 500)
           }
         } else if (step.action === 'scroll') {
-          for (let i = 0; i < 8; i++) {
-            await page.evaluate(() => window.scrollBy({ top: 150, behavior: 'smooth' }))
-            await page.waitForTimeout(1000)
+          // Scroll and capture simultaneously — 10 scroll+capture cycles
+          for (let i = 0; i < 10; i++) {
+            await page.evaluate(() => window.scrollBy({ top: 120, behavior: 'smooth' }))
+            await captureFrames(3, 300) // 3 frames per scroll step
           }
-        } else if (step.action === 'wait' && step.value) {
-          await page.waitForTimeout(parseInt(step.value) || 2000)
+        } else if (step.action === 'wait') {
+          await captureFrames(4, 500)
         }
-        await page.waitForTimeout(1000)
       }
 
-      // Extended scroll exploration
-      await page.waitForTimeout(2000)
+      // Extended scroll exploration — this is the bulk of the video
+      // Scroll down capturing as we go
+      for (let i = 0; i < 12; i++) {
+        await page.evaluate(() => window.scrollBy({ top: 120, behavior: 'smooth' }))
+        await captureFrames(3, 300)
+      }
+      // Pause at bottom
+      await captureFrames(8, 400)
+      // Scroll back up
       for (let i = 0; i < 8; i++) {
-        await page.evaluate(() => window.scrollBy({ top: 150, behavior: 'smooth' }))
-        await page.waitForTimeout(1000)
-      }
-      await page.waitForTimeout(3000)
-      for (let i = 0; i < 5; i++) {
         await page.evaluate(() => window.scrollBy({ top: -150, behavior: 'smooth' }))
-        await page.waitForTimeout(1000)
+        await captureFrames(3, 300)
       }
-      await page.waitForTimeout(2000)
+      // Final pause at top
+      await captureFrames(6, 400)
 
     } finally {
-      capturing = false
-      clearInterval(captureInterval)
       await browser.close()
     }
 
