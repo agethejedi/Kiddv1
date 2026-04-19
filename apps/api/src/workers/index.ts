@@ -198,52 +198,57 @@ function startRecordWorker() {
     const click_events: any[] = []
     const startTime = Date.now()
 
-    const cdp = await page.context().newCDPSession(page)
-    await cdp.send('Page.startScreencast', { format: 'png', quality: 80, maxWidth: 1280, maxHeight: 800, everyNthFrame: 2 })
-    cdp.on('Page.screencastFrame', async ({ data, sessionId }: any) => {
-      frames.push(Buffer.from(data, 'base64'))
-      await cdp.send('Page.screencastFrameAck', { sessionId }).catch(() => {})
-    })
+    // Use interval-based screenshots instead of CDP screencast
+    // CDP screencast gets throttled by Browserless; polling is more reliable
+    let capturing = true
+    const captureInterval = setInterval(async () => {
+      if (!capturing) return
+      try {
+        const buf = await page.screenshot({ type: 'png' })
+        frames.push(buf)
+      } catch { /* ignore errors during capture */ }
+    }, 500) // screenshot every 500ms = ~2fps
 
     try {
       for (const step of flow.steps || []) {
         if (step.action === 'navigate' && step.value) {
           await page.goto(step.value, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {})
-          await page.waitForTimeout(4000) // hold on landing page so viewer can read it
+          await page.waitForTimeout(4000)
         } else if (step.action === 'click' && step.selector) {
           const el = await page.waitForSelector(step.selector, { timeout: 5000 }).catch(() => null)
           if (el) {
             const box = await el.boundingBox()
             if (box) click_events.push({ timestamp_ms: Date.now() - startTime, x: box.x + box.width / 2, y: box.y + box.height / 2 })
             await el.click().catch(() => {})
-            await page.waitForTimeout(3000) // hold after click
+            await page.waitForTimeout(3000)
           }
         } else if (step.action === 'scroll') {
-          // Slow deliberate scroll — 6 increments with 1.5s between each
-          for (let i = 0; i < 6; i++) {
-            await page.evaluate(() => window.scrollBy({ top: 180, behavior: 'smooth' }))
-            await page.waitForTimeout(1500)
+          for (let i = 0; i < 8; i++) {
+            await page.evaluate(() => window.scrollBy({ top: 150, behavior: 'smooth' }))
+            await page.waitForTimeout(1000)
           }
         } else if (step.action === 'wait' && step.value) {
           await page.waitForTimeout(parseInt(step.value) || 2000)
         }
-        await page.waitForTimeout(1500)
+        await page.waitForTimeout(1000)
       }
 
-      // Extended exploration — scroll down slowly, pause, scroll back up
+      // Extended scroll exploration
       await page.waitForTimeout(2000)
-      for (let i = 0; i < 6; i++) {
-        await page.evaluate(() => window.scrollBy({ top: 200, behavior: 'smooth' }))
-        await page.waitForTimeout(1500)
+      for (let i = 0; i < 8; i++) {
+        await page.evaluate(() => window.scrollBy({ top: 150, behavior: 'smooth' }))
+        await page.waitForTimeout(1000)
       }
-      await page.waitForTimeout(3000) // pause at bottom
-      for (let i = 0; i < 4; i++) {
-        await page.evaluate(() => window.scrollBy({ top: -200, behavior: 'smooth' }))
-        await page.waitForTimeout(1500)
+      await page.waitForTimeout(3000)
+      for (let i = 0; i < 5; i++) {
+        await page.evaluate(() => window.scrollBy({ top: -150, behavior: 'smooth' }))
+        await page.waitForTimeout(1000)
       }
-      await page.waitForTimeout(2000) // hold at top before ending
+      await page.waitForTimeout(2000)
+
     } finally {
-      await cdp.send('Page.stopScreencast').catch(() => {})
+      capturing = false
+      clearInterval(captureInterval)
       await browser.close()
     }
 
