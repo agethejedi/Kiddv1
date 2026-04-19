@@ -208,25 +208,40 @@ function startRecordWorker() {
     try {
       for (const step of flow.steps || []) {
         if (step.action === 'navigate' && step.value) {
-          await page.goto(step.value, { waitUntil: 'networkidle', timeout: 15000 }).catch(() => {})
+          await page.goto(step.value, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {})
+          await page.waitForTimeout(4000) // hold on landing page so viewer can read it
         } else if (step.action === 'click' && step.selector) {
-          const el = await page.waitForSelector(step.selector, { timeout: 3000 }).catch(() => null)
+          const el = await page.waitForSelector(step.selector, { timeout: 5000 }).catch(() => null)
           if (el) {
             const box = await el.boundingBox()
             if (box) click_events.push({ timestamp_ms: Date.now() - startTime, x: box.x + box.width / 2, y: box.y + box.height / 2 })
             await el.click().catch(() => {})
+            await page.waitForTimeout(3000) // hold after click
           }
         } else if (step.action === 'scroll') {
-          await page.evaluate(() => window.scrollBy(0, 400))
+          // Slow deliberate scroll — 6 increments with 1.5s between each
+          for (let i = 0; i < 6; i++) {
+            await page.evaluate(() => window.scrollBy({ top: 180, behavior: 'smooth' }))
+            await page.waitForTimeout(1500)
+          }
         } else if (step.action === 'wait' && step.value) {
-          await page.waitForTimeout(parseInt(step.value) || 1000)
+          await page.waitForTimeout(parseInt(step.value) || 2000)
         }
-        await page.waitForTimeout(600)
+        await page.waitForTimeout(1500)
       }
-      // Extra scroll at end to show more content
-      await page.waitForTimeout(1000)
-      await page.evaluate(() => window.scrollBy(0, 300))
-      await page.waitForTimeout(1000)
+
+      // Extended exploration — scroll down slowly, pause, scroll back up
+      await page.waitForTimeout(2000)
+      for (let i = 0; i < 6; i++) {
+        await page.evaluate(() => window.scrollBy({ top: 200, behavior: 'smooth' }))
+        await page.waitForTimeout(1500)
+      }
+      await page.waitForTimeout(3000) // pause at bottom
+      for (let i = 0; i < 4; i++) {
+        await page.evaluate(() => window.scrollBy({ top: -200, behavior: 'smooth' }))
+        await page.waitForTimeout(1500)
+      }
+      await page.waitForTimeout(2000) // hold at top before ending
     } finally {
       await cdp.send('Page.stopScreencast').catch(() => {})
       await browser.close()
