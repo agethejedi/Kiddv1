@@ -279,11 +279,23 @@ function startScriptWorker() {
     const { data: clip } = await supabase.from('clips').select('voice').eq('id', targetClipId).single()
     const audioPath = path.join(os.tmpdir(), 'demoagent', flow_id, 'narration.mp3')
     await mkdir(path.dirname(audioPath), { recursive: true })
-    await generateAudio(script, clip?.voice || 'nova', audioPath)
+    
+    try {
+      await generateAudio(script, clip?.voice || 'nova', audioPath)
+      await log(project_id, `Audio generated successfully`)
+    } catch (audioErr) {
+      console.error('Audio generation failed:', audioErr)
+      await log(project_id, `Audio generation failed — continuing with silent audio`)
+      // Generate silent fallback directly
+      const { execSync } = await import('child_process')
+      execSync(`ffmpeg -y -f lavfi -i anullsrc=r=44100:cl=mono -t 30 -q:a 9 -acodec libmp3lame "${audioPath}"`, { stdio: 'pipe' })
+    }
 
     // Upload audio to R2
+    await log(project_id, `Uploading audio to storage...`)
     const audioKey = `audio/${flow_id}/narration.mp3`
     const audioUrl = await uploadFile(audioKey, audioPath, 'audio/mpeg')
+    await log(project_id, `Audio uploaded`, 'ok')
 
     await supabase.from('clips').update({
       narration_script: script,
@@ -292,7 +304,9 @@ function startScriptWorker() {
     }).eq('id', targetClipId)
 
     // Queue encoding
+    await log(project_id, `Queuing encode job...`)
     await encodeQueue.add('encode', { project_id, flow_id, clip_id: targetClipId })
+
   }, { connection: redis })
 }
 
