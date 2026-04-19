@@ -324,8 +324,6 @@ function startEncodeWorker() {
     await supabase.from('clips').update({ status: 'encoding' }).eq('id', clip_id)
     await log(project_id, `Encoding clip: "${clip.title}"`)
 
-    const { execSync } = await import('child_process')
-    const fs = await import('fs/promises')
     const tmpDir = `/tmp/demoagent/${clip_id}`
     await fs.mkdir(tmpDir, { recursive: true })
 
