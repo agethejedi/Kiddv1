@@ -338,24 +338,47 @@ function startEncodeWorker() {
     const audioBuffer = await audioRes.arrayBuffer()
     await fs.writeFile(audioFile, Buffer.from(audioBuffer))
 
-    // Step 1: Assemble frames into raw video
-    execSync(
-      `ffmpeg -y -framerate 30 -i "${flow.frames_dir}/frame_%05d.png" -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
-      { stdio: 'pipe' }
-    )
+    // Step 1: Check if frames exist, otherwise create a title card
+    const { execSync } = await import('child_process')
+    const fs = await import('fs/promises')
+
+    let framesExist = false
+    try {
+      if (flow.frames_dir) {
+        const files = await fs.readdir(flow.frames_dir)
+        framesExist = files.some((f: string) => f.endsWith('.png'))
+      }
+    } catch { framesExist = false }
+
+    await log(project_id, `Frames available: ${framesExist}`)
+
+    if (framesExist) {
+      execSync(
+        `ffmpeg -y -framerate 30 -i "${flow.frames_dir}/frame_%05d.png" -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
+        { stdio: 'pipe' }
+      )
+    } else {
+      const cardTitle = clip.title.replace(/'/g, "\\'").replace(/:/g, '\\:')
+      execSync(
+        `ffmpeg -y -f lavfi -i color=c=0x0a0a0f:size=1280x800:rate=30 -vf "drawtext=text='${cardTitle}':fontsize=48:fontcolor=0xc8a96e:x=(w-text_w)/2:y=(h-text_h)/2" -t 30 -c:v libx264 -pix_fmt yuv420p -preset fast "${rawVideo}"`,
+        { stdio: 'pipe' }
+      )
+    }
 
     // Step 2: Build click overlay + title filter
     const clickFilters = (flow.click_events || []).map((e: any) => {
       const t = (e.timestamp_ms / 1000).toFixed(2)
       return `drawcircle=x=${Math.round(e.x)}:y=${Math.round(e.y)}:r=24:color=0xFF5722@0.85:enable='between(t,${t},${(parseFloat(t) + 0.6).toFixed(2)})'`
     })
-    const safeTitle = clip.title.replace(/'/g, "\'")
-    const titleFilter = `drawtext=text='${safeTitle}':fontsize=28:fontcolor=white:x=48:y=h-80:box=1:boxcolor=black@0.55:boxborderw=10:enable='between(t,0.5,3.5)'`
-    const allFilters = [...clickFilters, titleFilter].join(',')
+    const safeTitle = clip.title.replace(/'/g, "\\'").replace(/:/g, '\\:')
+    const titleFilter = framesExist
+      ? `drawtext=text='${safeTitle}':fontsize=28:fontcolor=white:x=48:y=h-80:box=1:boxcolor=black@0.55:boxborderw=10:enable='between(t,0.5,3.5)'`
+      : `drawtext=text='${safeTitle}':fontsize=28:fontcolor=white:x=48:y=h-80:box=1:boxcolor=black@0.55:boxborderw=10`
+    const allFilters = clickFilters.length > 0 ? [...clickFilters, titleFilter].join(',') : titleFilter
 
     // Step 3: Combine video + overlays + audio
     execSync(
-      `ffmpeg -y -i "${rawVideo}" -i "${audioFile}" -vf "${allFilters}" -c:v libx264 -c:a aac -shortest -preset fast -pix_fmt yuv420p "${finalVideo}"`,
+      `ffmpeg -y -i "${rawVideo}" -i "${audioFile}" -vf "${allFilters}" -c:v libx264 -c:a aac -shortest -preset fast -pix_fmt yuv420p -movflags +faststart "${finalVideo}"`,
       { stdio: 'pipe' }
     )
 
